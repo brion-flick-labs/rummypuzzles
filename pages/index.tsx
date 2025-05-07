@@ -66,7 +66,7 @@ const isValidRun = (cards: string[]): boolean => {
   }
   
   // Check if the sequence is valid
-  let lastNum = sorted[0]
+  let lastNum: number | null = sorted[0]
   let wildcardsAvailable = cards.filter(c => c === '*').length
   
   for (let i = 1; i < sorted.length; i++) {
@@ -79,7 +79,7 @@ const isValidRun = (cards: string[]): boolean => {
       continue
     }
     
-    const gap = sorted[i] - lastNum - 1
+    const gap = sorted[i]! - lastNum - 1
     if (gap < 0) return false // numbers are out of order
     if (gap > wildcardsAvailable) return false // not enough wildcards to fill the gap
     
