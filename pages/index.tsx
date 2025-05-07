@@ -234,7 +234,7 @@ export default function Home() {
       newBoard.splice(setIndex, 1)
     }
     setBoard(newBoard)
-    setHand([...hand, removedCard])
+    setHand(prevHand => [...prevHand, removedCard])
   }
 
   const handleAddCard = (setIndex: number) => {
