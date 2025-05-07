@@ -234,7 +234,7 @@ export default function Home() {
       newBoard.splice(setIndex, 1)
     }
     setBoard(newBoard)
-    setHand([...hand, removedCard])
+    setHand(hand.filter(c => c !== removedCard))
   }
 
   const handleAddCard = (setIndex: number) => {
@@ -297,13 +297,23 @@ export default function Home() {
     }
   }
 
-  const handleReset = () => {
-    fetch('/api/today')
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(data => {
-        setPuzzle(data)
-        setBoard(data.board)
-        setHand(data.hand)
+  const handleReset = async () => {
+    try {
+      const response = await fetch('/api/today')
+      if (!response.ok) {
+        throw new Error('Failed to reset puzzle')
+      }
+      const data: PuzzleResponse = await response.json()
+      
+      if (data.error) {
+        setError(data.error)
+        return
+      }
+      
+      if (data.puzzle) {
+        setPuzzle(data.puzzle)
+        setBoard(data.puzzle.board)
+        setHand(data.puzzle.hand)
         setCurrentSelection([])
         setMoves([])
         setFeedback(null)
@@ -312,8 +322,11 @@ export default function Home() {
         setSolveTime(null)
         setFailCount(0)
         setShowSuccess(false)
-      })
-      .catch(() => setError('Failed to reset puzzle.'))
+        setError(null)
+      }
+    } catch (err) {
+      setError('Failed to reset puzzle')
+    }
   }
 
   const handleShare = () => {
