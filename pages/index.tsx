@@ -137,14 +137,6 @@ export default function Home() {
         if (!response.ok) throw new Error('Failed to load dates')
         const data: PuzzleDates = await response.json()
         
-        // Sort dates in descending order (newest first)
-        const sortedDates = [...data.dates].sort((a, b) => {
-          const dateA = new Date(a)
-          const dateB = new Date(b)
-          return dateB.getTime() - dateA.getTime()
-        })
-        setAvailableDates(sortedDates)
-        
         // Get today's date in EST
         const today = new Date()
         const estDate = new Date(today.toLocaleString('en-US', { timeZone: 'America/New_York' }))
@@ -154,16 +146,23 @@ export default function Home() {
           estDate.getDate()
         ))
         
-        // Find the first date that is less than or equal to today, or is a test date (2025)
+        // Filter out future dates and sort in descending order
+        const sortedDates = data.dates
+          .filter(date => {
+            const [year, month, day] = date.split('-').map(Number)
+            const puzzleDate = new Date(Date.UTC(year, month - 1, day))
+            // Only include dates up to today
+            return puzzleDate <= todayEST
+          })
+          .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
+        
+        setAvailableDates(sortedDates)
+        
+        // Find the first date that is less than or equal to today
         let index = sortedDates.findIndex(date => {
           const [year, month, day] = date.split('-').map(Number)
           const puzzleDate = new Date(Date.UTC(year, month - 1, day))
-          // For 2025, find the most recent date
-          if (year === 2025) {
-            return puzzleDate <= todayEST
-          }
-          // For other years, only allow dates up to today
-          return puzzleDate.getTime() <= todayEST.getTime()
+          return puzzleDate <= todayEST
         })
         
         if (index === -1) index = 0 // If no date found, start at the beginning
@@ -224,13 +223,32 @@ export default function Home() {
   const handleDateChange = (direction: 'prev' | 'next') => {
     const newIndex = direction === 'prev' ? currentDateIndex + 1 : currentDateIndex - 1
     if (newIndex >= 0 && newIndex < availableDates.length) {
-      setCurrentDateIndex(newIndex)
-      setCurrentDate(new Date(availableDates[newIndex]))
+      // Get today's date in EST
+      const today = new Date()
+      const estDate = new Date(today.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+      const todayEST = new Date(Date.UTC(
+        estDate.getFullYear(),
+        estDate.getMonth(),
+        estDate.getDate()
+      ))
+      
+      // Check if the target date is in the future
+      const targetDate = new Date(availableDates[newIndex])
+      const isFutureDate = targetDate > todayEST
+      
+      if (!isFutureDate) {
+        setCurrentDateIndex(newIndex)
+        setCurrentDate(new Date(availableDates[newIndex]))
+      }
     }
   }
 
   const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', { 
+    // Create a new date one day ahead
+    const nextDay = new Date(date)
+    nextDay.setDate(nextDay.getDate() + 1)
+    
+    return nextDay.toLocaleDateString('en-US', { 
       month: 'long', 
       day: 'numeric', 
       year: 'numeric',
@@ -410,23 +428,47 @@ export default function Home() {
 
       <div className="flex justify-between items-center text-sm text-gray-600">
         <div className="flex items-center gap-2">
-          {currentDateIndex < availableDates.length - 1 && (
-            <button
-              onClick={() => handleDateChange('prev')}
-              className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600"
-            >
-              ←
-            </button>
-          )}
+          {currentDateIndex < availableDates.length - 1 && (() => {
+            const nextDate = new Date(availableDates[currentDateIndex + 1])
+            const today = new Date()
+            const estDate = new Date(today.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+            const todayEST = new Date(Date.UTC(
+              estDate.getFullYear(),
+              estDate.getMonth(),
+              estDate.getDate()
+            ))
+            const isFutureDate = nextDate > todayEST
+            
+            return !isFutureDate && (
+              <button
+                onClick={() => handleDateChange('prev')}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600"
+              >
+                ←
+              </button>
+            )
+          })()}
           <div>{formatDate(currentDate)}</div>
-          {currentDateIndex > 0 && (
-            <button
-              onClick={() => handleDateChange('next')}
-              className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600"
-            >
-              →
-            </button>
-          )}
+          {currentDateIndex > 0 && (() => {
+            const prevDate = new Date(availableDates[currentDateIndex - 1])
+            const today = new Date()
+            const estDate = new Date(today.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+            const todayEST = new Date(Date.UTC(
+              estDate.getFullYear(),
+              estDate.getMonth(),
+              estDate.getDate()
+            ))
+            const isFutureDate = prevDate > todayEST
+            
+            return !isFutureDate && (
+              <button
+                onClick={() => handleDateChange('next')}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600"
+              >
+                →
+              </button>
+            )
+          })()}
         </div>
         {!puzzleError && startTime && !solveTime && <div>Time: {currentTime}</div>}
         {!puzzleError && solveTime && <div>Solved in {solveTime}</div>}
