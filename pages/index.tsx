@@ -270,7 +270,15 @@ export default function Home() {
     }
     const card = currentSelection[0]
     const newBoard = [...board]
-    newBoard[setIndex].unshift(card)
+    // Add card to meld and sort
+    newBoard[setIndex] = [...newBoard[setIndex], card].sort((a, b) => {
+      // First sort by suit (first character)
+      if (a[0] !== b[0]) {
+        return a[0].localeCompare(b[0])
+      }
+      // Then sort by value (remaining characters)
+      return parseInt(a.slice(1)) - parseInt(b.slice(1))
+    })
     setBoard(newBoard)
     setHand(hand.filter(c => c !== card))
     setCurrentSelection([])
