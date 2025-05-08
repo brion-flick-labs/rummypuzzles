@@ -123,7 +123,7 @@ export default function Home() {
   const [currentTime, setCurrentTime] = useState<string>('0:00')
   const [failCount, setFailCount] = useState(0)
   const [showSuccess, setShowSuccess] = useState(false)
-  const [showInfo, setShowInfo] = useState(false)
+  const [showInfo, setShowInfo] = useState(true)
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
   const [puzzleError, setPuzzleError] = useState<string | null>(null)
   const [availableDates, setAvailableDates] = useState<string[]>([])
@@ -136,23 +136,39 @@ export default function Home() {
         const response = await fetch('/api/dates')
         if (!response.ok) throw new Error('Failed to load dates')
         const data: PuzzleDates = await response.json()
-        setAvailableDates(data.dates)
         
-        // Find the index of today's date or the closest previous date
+        // Sort dates in descending order (newest first)
+        const sortedDates = [...data.dates].sort((a, b) => {
+          const dateA = new Date(a)
+          const dateB = new Date(b)
+          return dateB.getTime() - dateA.getTime()
+        })
+        setAvailableDates(sortedDates)
+        
+        // Get today's date in EST
         const today = new Date()
-        today.setHours(0, 0, 0, 0) // Set to start of day
-        const todayString = today.toISOString().split('T')[0]
+        const estDate = new Date(today.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+        const todayEST = new Date(Date.UTC(
+          estDate.getFullYear(),
+          estDate.getMonth(),
+          estDate.getDate()
+        ))
         
-        // Find the first date that is less than or equal to today
-        let index = data.dates.findIndex(date => {
-          const puzzleDate = new Date(date)
-          puzzleDate.setHours(0, 0, 0, 0)
-          return puzzleDate <= today
+        // Find the first date that is less than or equal to today, or is a test date (2025)
+        let index = sortedDates.findIndex(date => {
+          const [year, month, day] = date.split('-').map(Number)
+          const puzzleDate = new Date(Date.UTC(year, month - 1, day))
+          // For 2025, find the most recent date
+          if (year === 2025) {
+            return puzzleDate <= todayEST
+          }
+          // For other years, only allow dates up to today
+          return puzzleDate.getTime() <= todayEST.getTime()
         })
         
         if (index === -1) index = 0 // If no date found, start at the beginning
         setCurrentDateIndex(index)
-        setCurrentDate(new Date(data.dates[index]))
+        setCurrentDate(new Date(sortedDates[index]))
       } catch (err) {
         setError('Failed to load puzzle dates')
       }
@@ -217,7 +233,8 @@ export default function Home() {
     return date.toLocaleDateString('en-US', { 
       month: 'long', 
       day: 'numeric', 
-      year: 'numeric' 
+      year: 'numeric',
+      timeZone: 'America/New_York' // Use EST timezone
     })
   }
 
@@ -473,7 +490,11 @@ export default function Home() {
         <h2 className="text-sm font-medium text-gray-500">Board</h2>
         {puzzleError ? (
           <div className="flex items-center justify-center h-48 bg-gray-100 rounded-lg">
-            <p className="text-gray-600">No Puzzle for this date</p>
+            <p className="text-gray-600">
+              {puzzleError === 'No Puzzle Available Yet' 
+                ? 'No Puzzle Available Yet'
+                : 'No Puzzle for this date'}
+            </p>
           </div>
         ) : (
           <div className="space-y-4">
