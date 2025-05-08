@@ -139,8 +139,17 @@ export default function Home() {
         setAvailableDates(data.dates)
         
         // Find the index of today's date or the closest previous date
-        const todayString = new Date().toISOString().split('T')[0]
-        let index = data.dates.findIndex(date => date <= todayString)
+        const today = new Date()
+        today.setHours(0, 0, 0, 0) // Set to start of day
+        const todayString = today.toISOString().split('T')[0]
+        
+        // Find the first date that is less than or equal to today
+        let index = data.dates.findIndex(date => {
+          const puzzleDate = new Date(date)
+          puzzleDate.setHours(0, 0, 0, 0)
+          return puzzleDate <= today
+        })
+        
         if (index === -1) index = 0 // If no date found, start at the beginning
         setCurrentDateIndex(index)
         setCurrentDate(new Date(data.dates[index]))
