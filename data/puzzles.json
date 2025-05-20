@@ -429,7 +429,7 @@
           ["Y8", "Y9", "Y10"],
           ["R1", "B1", "G1"]
         ],
-        "hand": ["R3", "Y11", "B7", "G9", "*"],
+        "hand": ["R3", "Y11", "B7", "G9", "R9","*"],
         "solution": [
           "Step 1: Take R6 and R7 from BoardMeld1 ([R4,R5,R6,R7,R8]). BoardMeld1 becomes [R4,R5,R8] (invalid). R6, R7 are loose. (This initial state of M1 will be rectified as R4,R5 and R8 are used).",
           "Step 2: Take R4 and R5 from the now [R4,R5,R8] (M1). M1 is now just [R8] (loose). R4,R5 are loose.",
