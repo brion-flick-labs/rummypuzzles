@@ -1,8 +1,23 @@
 import { NextApiRequest, NextApiResponse } from 'next'
-import puzzles from '../../data/puzzles.json'
+import puzzles from '../../data/puzzles2.json'
+
+type PuzzleData = {
+  date: string
+  initial_cards: string[]
+  possible_card_counts: { [key: string]: boolean }
+  optimal_solutions: string[]
+  optimal_solution_cards: string[]
+  include_wildcards: boolean
+  score: {
+    max_cards_used: number
+    num_optimal_solutions: number
+  }
+}
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
+    const puzzleData = puzzles as unknown as PuzzleData[]
+    
     // Get today's date in EST
     const today = new Date()
     const estDate = new Date(today.toLocaleString('en-US', { timeZone: 'America/New_York' }))
@@ -31,7 +46,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     // Find the puzzle for the target date
-    const puzzle = puzzles.find(p => p.date === targetDate)
+    const puzzle = puzzleData.find(p => p.date === targetDate)
     
     if (!puzzle) {
       return res.status(200).json({

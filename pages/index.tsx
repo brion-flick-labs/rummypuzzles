@@ -2,9 +2,15 @@ import { useEffect, useState } from 'react'
 
 type Puzzle = {
   date: string
-  board: string[][]
-  hand: string[]
-  solution: string[]
+  initial_cards: string[]
+  possible_card_counts: { [key: string]: boolean }
+  optimal_solutions: string[]
+  optimal_solution_cards: string[]
+  include_wildcards: boolean
+  score: {
+    max_cards_used: number
+    num_optimal_solutions: number
+  }
 }
 
 type Move = {
@@ -124,10 +130,14 @@ export default function Home() {
   const [failCount, setFailCount] = useState(0)
   const [showSuccess, setShowSuccess] = useState(false)
   const [showInfo, setShowInfo] = useState(true)
+  const [showShare, setShowShare] = useState(false)
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
   const [puzzleError, setPuzzleError] = useState<string | null>(null)
   const [availableDates, setAvailableDates] = useState<string[]>([])
   const [currentDateIndex, setCurrentDateIndex] = useState<number>(-1)
+  const [score, setScore] = useState(0)
+  const [usedCardCounts, setUsedCardCounts] = useState<number[]>([])
+  const [maxScore, setMaxScore] = useState(0)
 
   // Load available dates
   useEffect(() => {
@@ -151,21 +161,18 @@ export default function Home() {
           .filter(date => {
             const [year, month, day] = date.split('-').map(Number)
             const puzzleDate = new Date(Date.UTC(year, month - 1, day))
-            // Only include dates up to today
-            return puzzleDate <= todayEST
+            // Allow all dates for now since we're testing with 2025 dates
+            return true
           })
           .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
         
         setAvailableDates(sortedDates)
         
-        // Find the first date that is less than or equal to today
-        let index = sortedDates.findIndex(date => {
-          const [year, month, day] = date.split('-').map(Number)
-          const puzzleDate = new Date(Date.UTC(year, month - 1, day))
-          return puzzleDate <= todayEST
-        })
+        // Find the index of today's date
+        const todayIndex = sortedDates.findIndex(date => date === data.today)
         
-        if (index === -1) index = 0 // If no date found, start at the beginning
+        // If today's date is not found, start at the beginning
+        const index = todayIndex === -1 ? 0 : todayIndex
         setCurrentDateIndex(index)
         setCurrentDate(new Date(sortedDates[index]))
       } catch (err) {
@@ -175,6 +182,20 @@ export default function Home() {
 
     loadDates()
   }, [])
+
+  // Timer effect
+  useEffect(() => {
+    let timer: NodeJS.Timeout
+    if (startTime && !solveTime) {
+      timer = setInterval(() => {
+        const timeElapsed = Date.now() - startTime
+        setCurrentTime(formatTime(timeElapsed))
+      }, 1000)
+    }
+    return () => {
+      if (timer) clearInterval(timer)
+    }
+  }, [startTime, solveTime])
 
   // Load puzzle effect
   useEffect(() => {
@@ -196,8 +217,8 @@ export default function Home() {
           setPuzzleError(data.error)
         } else if (data.puzzle) {
           setPuzzle(data.puzzle)
-          setBoard(data.puzzle.board)
-          setHand(data.puzzle.hand)
+          setBoard([]) // Start with an empty board
+          setHand(data.puzzle.initial_cards) // Set the initial hand
           setStartTime(Date.now())
           setCurrentTime('0:00')
           setSolveTime(null)
@@ -208,6 +229,22 @@ export default function Home() {
           setMoves([])
           setFeedback(null)
           setPuzzleError(null)
+          setScore(0)
+          setUsedCardCounts([])
+          
+          // Calculate max score based on possible card counts
+          const possibleCounts = Object.entries(data.puzzle.possible_card_counts)
+            .filter(([_, isPossible]) => isPossible)
+            .map(([count]) => parseInt(count))
+          
+          // Max score is (possible card counts × 2) + 3
+          const maxScore = (possibleCounts.length * 2) + 3
+          console.log('Max score calculation:', {
+            possibleCounts: possibleCounts.length,
+            maxScore
+          })
+          
+          setMaxScore(maxScore)
         }
       } catch (err) {
         setPuzzle(null)
@@ -234,6 +271,7 @@ export default function Home() {
       
       // Check if the target date is in the future
       const targetDate = new Date(availableDates[newIndex])
+      const [year] = availableDates[newIndex].split('-').map(Number)
       const isFutureDate = targetDate > todayEST
       
       if (!isFutureDate) {
@@ -318,13 +356,6 @@ export default function Home() {
   const handleSubmit = () => {
     if (!puzzle) return
     
-    // Check if hand is empty
-    if (hand.length > 0) {
-      setFeedback('You must use all cards in your hand')
-      setFailCount(prev => prev + 1)
-      return
-    }
-    
     // Validate all melds
     const invalid = board.reduce((acc, meld, index) => {
       if (!isValidMeld(meld)) {
@@ -340,12 +371,46 @@ export default function Home() {
       setFailCount(prev => prev + 1)
       return
     }
+
+    // Calculate total cards used
+    const totalCardsUsed = board.reduce((sum, meld) => sum + meld.length, 0)
     
-    // Calculate solve time
-    if (startTime) {
-      const timeElapsed = Date.now() - startTime
-      setSolveTime(formatTime(timeElapsed))
-      setShowSuccess(true)
+    // Check if this card count is possible and hasn't been used before
+    if (puzzle.possible_card_counts[totalCardsUsed] && !usedCardCounts.includes(totalCardsUsed)) {
+      setUsedCardCounts(prev => [...prev, totalCardsUsed])
+      
+      // Check if this is an optimal solution
+      const isOptimal = puzzle.optimal_solutions.some(solution => {
+        // Extract just the card counts from the solution string
+        const melds = solution.split('|').map(meld => meld.trim())
+        const totalCards = melds.reduce((sum, meld) => {
+          // Extract cards from the meld (format: "S1:card1,card2,card3")
+          const cards = meld.split(':')[1].split(',').map(card => card.trim())
+          return sum + cards.length
+        }, 0)
+        return totalCards === totalCardsUsed
+      })
+      
+      const pointsToAdd = isOptimal ? 5 : 2
+      setScore(prev => prev + pointsToAdd)
+      
+      if (isOptimal) {
+        setFeedback('Optimal solution! +5 points')
+      } else {
+        setFeedback('Valid solution! +2 points')
+      }
+      
+      // Check if this is the maximum possible score
+      if (usedCardCounts.length + 1 === Object.keys(puzzle.possible_card_counts).filter(k => puzzle.possible_card_counts[k]).length) {
+        setShowSuccess(true)
+        if (startTime) {
+          const timeElapsed = Date.now() - startTime
+          setSolveTime(formatTime(timeElapsed))
+        }
+      }
+    } else {
+      setFeedback('This card count has already been used or is not possible')
+      setFailCount(prev => prev + 1)
     }
   }
 
@@ -363,17 +428,12 @@ export default function Home() {
       }
       
       if (data.puzzle) {
-        setPuzzle(data.puzzle)
-        setBoard(data.puzzle.board)
-        setHand(data.puzzle.hand)
+        setBoard([]) // Start with an empty board
+        setHand(data.puzzle.initial_cards) // Set the initial hand
         setCurrentSelection([])
         setMoves([])
         setFeedback(null)
         setInvalidMelds([])
-        setStartTime(Date.now())
-        setSolveTime(null)
-        setFailCount(0)
-        setShowSuccess(false)
         setError(null)
       }
     } catch (err) {
@@ -382,7 +442,7 @@ export default function Home() {
   }
 
   const handleShare = () => {
-    if (!puzzle || !solveTime) return
+    if (!puzzle) return
     
     const date = new Date(puzzle.date).toLocaleDateString('en-US', { 
       month: 'long', 
@@ -390,11 +450,21 @@ export default function Home() {
       year: 'numeric' 
     })
     
-    const shareText = `I completed the ${date} Rummy puzzle in ${solveTime} 🎉\n${
-      failCount > 0 
-        ? `I had ${'❌'.repeat(failCount)} fails` 
-        : 'I had no fails! 🎯'
-    }`
+    const shareText = `I scored ${score}/${maxScore} on the ${date} Rummy Puzzle in ${solveTime || currentTime}!!! 🎮`
+    
+    setShowShare(true)
+  }
+
+  const handleCopyShare = () => {
+    if (!puzzle) return
+    
+    const date = new Date(puzzle.date).toLocaleDateString('en-US', { 
+      month: 'long', 
+      day: 'numeric', 
+      year: 'numeric' 
+    })
+    
+    const shareText = `I scored ${score}/${maxScore} on the ${date} Rummy Puzzle in ${solveTime || currentTime}!!! 🎮`
     
     navigator.clipboard.writeText(shareText)
     setFeedback('Copied to clipboard!')
@@ -470,8 +540,15 @@ export default function Home() {
             )
           })()}
         </div>
-        {!puzzleError && startTime && !solveTime && <div>Time: {currentTime}</div>}
-        {!puzzleError && solveTime && <div>Solved in {solveTime}</div>}
+        <div className="flex items-center gap-4">
+          {!puzzleError && startTime && !solveTime && <div>Time: {currentTime}</div>}
+          {!puzzleError && solveTime && <div>Solved in {solveTime}</div>}
+          {!puzzleError && (
+            <div className="bg-gray-100 px-3 py-1 rounded">
+              Score: {score}/{maxScore}
+            </div>
+          )}
+        </div>
       </div>
       
       {/* Info Modal */}
@@ -490,7 +567,7 @@ export default function Home() {
             <div className="space-y-4">
               <div>
                 <h3 className="font-bold mb-2">Objective</h3>
-                <p>Rearrange the cards to form valid melds using all cards in your hand.</p>
+                <p>Find all possible ways to arrange the cards into valid melds using different numbers of cards.</p>
               </div>
               
               <div>
@@ -528,7 +605,12 @@ export default function Home() {
 
               <div>
                 <h3 className="font-bold mb-2">Scoring</h3>
-                <p>Try to solve the puzzle as quickly as possible with as few failed attempts as possible!</p>
+                <ul className="list-disc pl-5 space-y-2">
+                  <li>Each valid solution using a different number of cards earns 2 points</li>
+                  <li>Finding an optimal solution (marked in gold) earns 5 points</li>
+                  <li>Try to find all possible card counts to maximize your score!</li>
+                  <li>Check the Submitted Counts panel to track your progress</li>
+                </ul>
               </div>
             </div>
           </div>
@@ -536,64 +618,109 @@ export default function Home() {
       )}
 
       {/* Board section */}
-      <div className="bg-gray-50 rounded-lg p-4 space-y-4">
-        <h2 className="text-sm font-medium text-gray-500">Board</h2>
-        {puzzleError ? (
-          <div className="flex items-center justify-center h-48 bg-gray-100 rounded-lg">
-            <p className="text-gray-600">
-              {puzzleError === 'No Puzzle Available Yet' 
-                ? 'No Puzzle Available Yet'
-                : 'No Puzzle for this date'}
-            </p>
+      <div className="flex gap-4">
+        <div className="flex-1 bg-gray-50 rounded-lg p-4 space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-sm font-medium text-gray-500">Board</h2>
+            <div className="text-sm text-gray-500">
+              Cards Used: {board.reduce((sum, meld) => sum + meld.length, 0)}/{puzzle?.initial_cards.length || 0}
+            </div>
           </div>
-        ) : (
-          <div className="space-y-4">
-            {board.map((set, setIndex) => (
-              <div key={setIndex} className="flex gap-2">
-                {set.map((card, cardIndex) => (
+          {puzzleError ? (
+            <div className="flex items-center justify-center h-48 bg-gray-100 rounded-lg">
+              <p className="text-gray-600">
+                {puzzleError === 'No Puzzle Available Yet' 
+                  ? 'No Puzzle Available Yet'
+                  : 'No Puzzle for this date'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {board.map((set, setIndex) => (
+                <div key={setIndex} className="flex gap-2">
+                  {set.map((card, cardIndex) => (
+                    <button
+                      key={cardIndex}
+                      className={`h-12 w-12 flex items-center justify-center rounded-lg hover:opacity-80 ${
+                        invalidMelds.includes(setIndex) ? 'ring-2 ring-red-500' : ''
+                      } ${getCardColor(card)}`}
+                      onClick={() => handleRemoveCard(setIndex, cardIndex)}
+                    >
+                      {card}
+                    </button>
+                  ))}
                   <button
-                    key={cardIndex}
-                    className={`h-12 w-12 flex items-center justify-center rounded-lg hover:opacity-80 ${
-                      invalidMelds.includes(setIndex) ? 'ring-2 ring-red-500' : ''
-                    } ${getCardColor(card)}`}
-                    onClick={() => handleRemoveCard(setIndex, cardIndex)}
+                    className="h-12 w-12 flex items-center justify-center bg-gray-100 rounded-lg hover:bg-gray-200"
+                    onClick={() => handleAddCard(setIndex)}
                   >
-                    {card}
+                    +
                   </button>
-                ))}
-                <button
-                  className="h-12 w-12 flex items-center justify-center bg-gray-100 rounded-lg hover:bg-gray-200"
-                  onClick={() => handleAddCard(setIndex)}
-                >
-                  +
-                </button>
-              </div>
-            ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Submitted Card Counts section */}
+        <div className="w-32 bg-gray-50 rounded-lg p-4">
+          <h2 className="text-sm font-medium text-gray-500 mb-4">Submitted Counts</h2>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(puzzle?.possible_card_counts || {})
+              .filter(([_, isPossible]) => isPossible)
+              .map(([count]) => parseInt(count))
+              .sort((a, b) => b - a)
+              .map(count => {
+                const isSubmitted = usedCardCounts.includes(count)
+                const isOptimal = puzzle?.optimal_solutions.some(solution => {
+                  // Extract just the card counts from the solution string
+                  const melds = solution.split('|').map(meld => meld.trim())
+                  const totalCards = melds.reduce((sum, meld) => {
+                    // Extract cards from the meld (format: "S1:card1,card2,card3")
+                    const cards = meld.split(':')[1].split(',').map(card => card.trim())
+                    return sum + cards.length
+                  }, 0)
+                  return totalCards === count
+                })
+                
+                return (
+                  <div key={count} className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">{count}</span>
+                    <div className={`w-4 h-4 rounded ${
+                      isSubmitted 
+                        ? isOptimal 
+                          ? 'bg-yellow-400' // Gold for optimal
+                          : 'bg-green-500' // Green for regular
+                        : 'bg-gray-200' // Gray for unsubmitted
+                    }`} />
+                  </div>
+                )
+              })}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Hand section */}
-      {!puzzleError && (
-        <div className="bg-gray-50 rounded-lg p-4 space-y-4">
+      <div className="bg-gray-50 rounded-lg p-4 space-y-4">
+        <div className="flex justify-between items-center">
           <h2 className="text-sm font-medium text-gray-500">Hand</h2>
-          <div className="grid grid-cols-5 gap-2">
-            {hand.map((card, i) => (
-              <button
-                key={i}
-                className={`h-12 w-12 flex items-center justify-center rounded-lg ${
-                  currentSelection.includes(card)
-                    ? 'ring-2 ring-blue-500 ring-offset-2'
-                    : ''
-                } ${getCardColor(card)}`}
-                onClick={() => handleCardClick(card)}
-              >
-                {card}
-              </button>
-            ))}
+          <div className="text-sm text-gray-500">
+            Cards Remaining: {hand.length}
           </div>
         </div>
-      )}
+        <div className="flex flex-wrap gap-2">
+          {hand.map((card, index) => (
+            <button
+              key={index}
+              className={`h-12 w-12 flex items-center justify-center rounded-lg hover:opacity-80 ${
+                currentSelection.includes(card) ? 'ring-2 ring-blue-500' : ''
+              } ${getCardColor(card)}`}
+              onClick={() => handleCardClick(card)}
+            >
+              {card}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Action buttons */}
       {!puzzleError && (
@@ -610,13 +737,21 @@ export default function Home() {
           >
             Submit
           </button>
+          <button
+            className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
+            onClick={handleShare}
+          >
+            Share 📤
+          </button>
         </div>
       )}
 
       {/* Feedback message */}
       {feedback && (
         <div className={`p-4 rounded ${
-          feedback.includes('Congratulations') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+          feedback.includes('Optimal') || feedback.includes('Valid') || feedback.includes('Congratulations') 
+            ? 'bg-green-100 text-green-800' 
+            : 'bg-red-100 text-red-800'
         }`}>
           {feedback}
         </div>
@@ -625,24 +760,50 @@ export default function Home() {
       {/* Success modal */}
       {showSuccess && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="bg-white p-6 rounded-lg max-w-sm w-full mx-4">
+          <div className="bg-green-100 p-6 rounded-lg max-w-sm w-full mx-4">
             <h2 className="text-2xl font-bold mb-4">Puzzle Complete! 🎉</h2>
             <p className="mb-4">
-              You solved the puzzle in {solveTime}!
-              {failCount > 0 ? `\nYou had ${'❌'.repeat(failCount)} fails` : '\nPerfect solve! 🎯'}
+              You solved the puzzle in {solveTime}! ⏱️
+              {failCount > 0 
+                ? `\nYou had ${'❌'.repeat(failCount)} fails` 
+                : '\nPerfect solve! 🎯'}
             </p>
             <div className="flex gap-2">
-              <button
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                onClick={handleShare}
-              >
-                Share Result
-              </button>
               <button
                 className="flex-1 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
                 onClick={() => setShowSuccess(false)}
               >
-                Close
+                Close ✕
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share modal */}
+      {showShare && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="bg-white p-6 rounded-lg max-w-sm w-full mx-4">
+            <h2 className="text-2xl font-bold mb-4">Share Your Result</h2>
+            <div className="bg-gray-100 p-4 rounded-lg mb-4 whitespace-pre-line">
+              {puzzle && `I scored ${score}/${maxScore} on the ${new Date(puzzle.date).toLocaleDateString('en-US', { 
+                month: 'long', 
+                day: 'numeric', 
+                year: 'numeric' 
+              })} Rummy Puzzle in ${solveTime || currentTime}!!! 🎮`}
+            </div>
+            <div className="flex gap-2">
+              <button
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                onClick={handleCopyShare}
+              >
+                Copy to Clipboard 📋
+              </button>
+              <button
+                className="flex-1 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                onClick={() => setShowShare(false)}
+              >
+                Close ✕
               </button>
             </div>
           </div>
